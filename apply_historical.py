@@ -56,13 +56,12 @@ def sell_at(start, stock_data : pd.DataFrame, close_situation : str, close_at_en
     #gets stock data at possible sell points
     movement = price.to_frame(name='price').query(close_situation)['price']
     
-    #sell at first possible sell point
-    try: 
-        #returns sign if there is "movement"(.iloc[0] throws error when no data) within the same trading day
-        return np.sign(movement.iloc[0] - price.iloc[0])
-    except:
-        #returns None indicating market closed before the stock "moved"
-        return np.NaN
+    #returns pct change of trade if there is one
+    if not movement.empty():
+        return (movement.iloc[0] - price.iloc[0]) / price.iloc[0]
+    
+    #returns none if err
+    return np.NaN
 
 #tests success rate of each "situation"
 def test_situation(situation, test_data : pd.DataFrame, stock_data : pd.DataFrame):
@@ -158,7 +157,6 @@ if __name__ == "__main__":
     # tests these indicators and appends that indication to df
     # first string is your buy query, second string is your sell query
     situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(60) >= 1.0025', '(price >= price.iloc[0] * (1 + 0.0025)) | (price <= price.iloc[0] * (1 - 0.0025))', True), ignore_index = True).drop('situation', axis=1)
-    situations['indicate'] = 1
 
     #filters situations
     situations = situations.loc[(situations['indicate'] != 0)]

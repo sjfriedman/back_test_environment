@@ -57,7 +57,7 @@ def sell_at(start, stock_data : pd.DataFrame, close_situation : str, close_at_en
     movement = price.to_frame(name='price').query(close_situation)['price']
     
     #returns pct change of trade if there is one
-    if not movement.empty():
+    if not movement.empty:
         return (movement.iloc[0] - price.iloc[0]) / price.iloc[0]
     
     #returns none if err
@@ -158,10 +158,10 @@ if __name__ == "__main__":
     # first string is your buy query, second string is your sell query
     situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(60) >= 1.0025', '(price >= price.iloc[0] * (1 + 0.0025)) | (price <= price.iloc[0] * (1 - 0.0025))', True), ignore_index = True).drop('situation', axis=1)
 
+    print(situations)
+
     #filters situations
     situations = situations.loc[(situations['indicate'] != 0)]
-
-    print(situations)
 
     #performs trades
     trades = trade(test_data, stock_data, situations)

@@ -45,7 +45,7 @@ def get_data(symbol : str, api_key : str, redirect_url : str):
     return stock_data['open'].sort_index(axis=0).to_frame(name = 'price')
 
 #determines if stock moves pct(movement) up or down
-def sell_at(start, stock_data : pd.DataFrame, close_situation : str, close_at_end_day : bool):
+def sell_at(start, stock_data : pd.DataFrame, close_situation : str, close_at_end_day : bool, indicate = 1):
     #if you want to close at end day get only prices on this date
     if close_at_end_day:
         price = stock_data.loc[stock_data.index.date == start.date()]
@@ -58,7 +58,7 @@ def sell_at(start, stock_data : pd.DataFrame, close_situation : str, close_at_en
     
     #returns pct change of trade if there is one
     if not movement.empty:
-        return (movement.iloc[0] - price.iloc[0]) / price.iloc[0]
+        return indicate * ((movement.iloc[0] - price.iloc[0]) / price.iloc[0])
     
     #returns none if err
     return np.NaN
@@ -69,8 +69,10 @@ def test_situation(situation, test_data : pd.DataFrame, stock_data : pd.DataFram
     occurences = pd.Series(test_data.query(situation['open_situation']).index)
 
     #changes the trades to the direction of the indicate
-    trades = occurences.apply(sell_at, args=(stock_data, situation['close_situation'], situation['close_at_end_of_day'])).dropna()
+    trades = occurences.apply(sell_at, args=(stock_data, situation['close_situation'], situation['close_at_end_of_day'], situation['indicate'])).dropna()
 
+
+    #returns accuracies
     return pd.Series({'test_occurences': len(trades), 'test_accuracy':  len(trades[trades==situation['indicate']]) / len(trades)})
 
 #determines if the situation indicates to buy/sell/dont know
@@ -122,7 +124,6 @@ if __name__ == "__main__":
     symbol = 'SPY'
     min_time = '09:30'
     max_time = '16:00'
-    movement = 0.0025
     test_to_train_ratio = .5
 
     #get data from .env file

@@ -45,37 +45,42 @@ def get_data(symbol : str, api_key : str, redirect_url : str):
     return stock_data['open'].sort_index(axis=0).to_frame(name = 'price')
 
 #determines if stock moves pct(movement) up or down
-def direction(start, stock_data : pd.DataFrame, movement = float):
-    #gets stock data after date
-    trade_data = (stock_data.loc[(stock_data.index.date == start.date()) & (stock_data.index >= start)])['price']
-    
-    #gets stock data of after it moves int(movement) percent up or down
-    movement = trade_data.loc[(trade_data >= (trade_data.iloc[0] * (1 + movement))) | (trade_data <= (trade_data.iloc[0] * (1 - movement)))]
+def sell_at(start, stock_data : pd.DataFrame, close_situation : str, close_at_end_day : bool):
+    #if you want to close at end day get only prices on this date
+    if close_at_end_day:
+        price = stock_data.loc[stock_data.index.date == start.date()]
 
+    #gets stock data after datetime
+    price = (price.loc[(price.index >= start)])['price']
+    
+    #gets stock data at possible sell points
+    movement = price.to_frame(name='price').query(close_situation)['price']
+    
+    #sell at first possible sell point
     try: 
         #returns sign if there is "movement"(.iloc[0] throws error when no data) within the same trading day
-        return np.sign(movement.iloc[0] - trade_data.iloc[0])
+        return np.sign(movement.iloc[0] - price.iloc[0])
     except:
         #returns None indicating market closed before the stock "moved"
         return np.NaN
 
 #tests success rate of each "situation"
-def test_situation(situation, test_data : pd.DataFrame, stock_data : pd.DataFrame, movement : float):
+def test_situation(situation, test_data : pd.DataFrame, stock_data : pd.DataFrame):
     #gets the datetime occurences of each "situation" 
-    occurences = pd.Series(test_data.query(situation['situation']).index)
+    occurences = pd.Series(test_data.query(situation['open_situation']).index)
 
     #changes the trades to the direction of the indicate
-    trades = occurences.apply(direction, args=(stock_data,movement)).dropna()
+    trades = occurences.apply(sell_at, args=(stock_data, situation['close_situation'], situation['close_at_end_of_day'])).dropna()
 
     return pd.Series({'test_occurences': len(trades), 'test_accuracy':  len(trades[trades==situation['indicate']]) / len(trades)})
 
 #determines if the situation indicates to buy/sell/dont know
-def determine_indication(train_data : pd.DataFrame, stock_data: pd.DataFrame, situation : str, movement : float):
+def determine_indication(train_data : pd.DataFrame, stock_data: pd.DataFrame, situation : str, close_situation : str, close_at_end_day : bool):
     #gets the datetime occurences of each "situation"
     occurences = pd.Series(train_data.query(situation).index)
 
     #performs "trades"
-    trades = occurences.apply(direction, args=(stock_data,movement,)).dropna()
+    trades = occurences.apply(sell_at, args=(stock_data, close_situation, close_at_end_day)).dropna()
 
     #calculates confidence interval
     confidence_interval = stats.t.interval(0.99, len(trades)-1, loc=np.mean(trades), scale=np.std(trades)/np.sqrt(len(trades)))
@@ -85,27 +90,32 @@ def determine_indication(train_data : pd.DataFrame, stock_data: pd.DataFrame, si
 
     #returns a dict(gonna be appended to a df)
     if len(trades) != 0:
-        return {'situation' : situation, 
-            'indicate' : sign,
-            'interval' : confidence_interval,
-            'train_occurences' : len(trades),
-            'train_accuracy' : max(len(trades[trades>0]) / len(trades), len(trades[trades<0]) / len(trades))}
+        return {'open_situation' : situation,
+                'close_situation' : close_situation,
+                'close_at_end_of_day' : close_at_end_day,
+                'indicate' : sign,
+                'interval' : confidence_interval,
+                'train_occurences' : len(trades),
+                'train_accuracy' : max(len(trades[trades>0]) / len(trades), len(trades[trades<0]) / len(trades))}
     
-    return {'situation' : situation, 
+    return {'open_situation' : situation, 
+            'close_situation' : close_situation,
+            'close_at_end_of_day' : close_at_end_day,
             'indicate' : 0,
             'interval' : [0,0],
             'train_occurences' : 0,
             'train_accuracy' : 0}
 
-def trade(test_data : pd.DataFrame, stock_data : pd.DataFrame, situations : pd.DataFrame, movement : float):
+def trade(test_data : pd.DataFrame, stock_data : pd.DataFrame, situations : pd.DataFrame):
     #determines success rate of each "situation" on test_data
-    try: situations[['test_occurences', 'test_accuracy']] = situations.apply(test_situation, args=(test_data, stock_data, movement,), axis=1)
-    except: return 'u got no data'
+    if not situations.empty:
+        situations[['test_occurences', 'test_accuracy']] = situations.apply(test_situation, args=(test_data, stock_data), axis=1)
 
-    situations['growth'] = (situations['test_occurences'] * (situations['test_accuracy'] - (1-situations['test_accuracy'])))
-
-    #outputs that jawn
-    return situations
+        situations['growth'] = (situations['test_occurences'] * (situations['test_accuracy'] - (1-situations['test_accuracy'])))
+        
+        #outputs that jawn
+        return situations
+    return 'u got no data'
 
 
 if __name__ == "__main__":
@@ -134,28 +144,21 @@ if __name__ == "__main__":
 
  
     # gets unique dates from stock_data and shuffles them
-    index_shuffled = np.array(stock_data.index)
+    # index_shuffled = np.array(stock_data.index)
     
     #shuffle split technique
-    np.random.shuffle(index_shuffled)
+    # np.random.shuffle(index_shuffled)
     # train_data = stock_data.loc[pd.to_datetime(stock_data.index).isin(index_shuffled[:int(len(index_shuffled) * test_to_train_ratio)])]
     # test_data = stock_data.loc[pd.to_datetime(stock_data.index).isin(index_shuffled[int(len(index_shuffled) * test_to_train_ratio):])]
 
     # # month splittage
-    train_data = stock_data[(stock_data.index.month <= 6)]
-    test_data = stock_data[(stock_data.index.month > 6) & (stock_data.index.month <= 8)]
+    train_data = stock_data[(stock_data.index.month == 1)]
+    test_data = stock_data[(stock_data.index.month == 2)]
   
     # tests these indicators and appends that indication to df
-    situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(60) >= 1.0025', movement), ignore_index = True)
-    situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(60) <= 0.9975', movement), ignore_index = True)
-    situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(60) >= 1.005', movement), ignore_index = True)
-    situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(60) <= 0.995', movement), ignore_index = True)
-    situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(120) >= 1.005', movement), ignore_index = True)
-    situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(120) <= 0.995', movement), ignore_index = True)
-    situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(120) <= 0.995 & price / price.shift(60) <= .995', movement), ignore_index = True)
-    situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(120)  >= 1.005 & price / price.shift(60)  >= 1.005', movement), ignore_index = True)
-    situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(120) >= 0.995 & price / price.shift(60) <= .995', movement), ignore_index = True)
-    situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(120)  <= 1.005 & price / price.shift(60)  >= 1.005', movement), ignore_index = True)
+    # first string is your buy query, second string is your sell query
+    situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(60) >= 1.0025', '(price >= price.iloc[0] * (1 + 0.0025)) | (price <= price.iloc[0] * (1 - 0.0025))', True), ignore_index = True).drop('situation', axis=1)
+    situations['indicate'] = 1
 
     #filters situations
     situations = situations.loc[(situations['indicate'] != 0)]
@@ -163,7 +166,6 @@ if __name__ == "__main__":
     print(situations)
 
     #performs trades
-    trades = trade(test_data, stock_data, situations, movement)
-
+    trades = trade(test_data, stock_data, situations)
 
     print(trades)

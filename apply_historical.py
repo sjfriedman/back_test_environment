@@ -74,9 +74,30 @@ def test_situation(situation, test_data : pd.DataFrame, stock_data : pd.DataFram
 
     #changes the trades to the direction of the indicate
     trades[['close_time', 'pct_change']] = trades['open_time'].apply(close_at, args=(stock_data, situation['close_situation'], situation['close_at_end_of_day']))
+
+    #makes sure only one active trade at a time
+    trades = one_at_a_time(trades)
     
     #returns accuracy
     return pd.Series({'test_occurences' : len(trades), 'profit': trades['pct_change'].sum()})
+
+#makes sure only one active trade at a time
+def one_at_a_time(trades : pd.DataFrame):
+    #iterates through number of rows in trades(this number is the max number of times this function can be called)
+    for row_num in range(len(trades)):
+        #if either row_num becomes too large for trades since trades changes or if all the shifts are lined up break
+        if row_num >= len(trades) or all(trades['open_time'] > trades['close_time'].shift(1)):
+            break
+
+        #see if current row shoudl be used
+        mask = (trades['open_time'] > trades['close_time'].iloc[row_num]) | (trades.index <= row_num)
+
+        #change trades with answer
+        trades = trades[mask].reset_index(drop=True)
+
+    return trades
+
+
 
 #determines if the situation indicates to buy/sell/dont know
 def determine_indication(train_data : pd.DataFrame, stock_data: pd.DataFrame, situation : str, close_situation : str, close_at_end_day : bool):
@@ -89,6 +110,8 @@ def determine_indication(train_data : pd.DataFrame, stock_data: pd.DataFrame, si
     #performs "trades"
     trades[['close_time', 'pct_change']] = trades['open_time'].apply(close_at, args=(stock_data, close_situation, close_at_end_day))
 
+    #makes sure only one active trade at a time
+    trades = one_at_a_time(trades)
 
     #calculates confidence interval
     confidence_interval = stats.t.interval(0.99, len(trades['pct_change'])-1, loc=np.mean(trades['pct_change']), scale=np.std(trades['pct_change'])/np.sqrt(len(trades['pct_change'])))
@@ -150,7 +173,6 @@ if __name__ == "__main__":
     #gets data during market open not including extra hours(which we can include later)
     stock_data = stock_data.between_time(min_time, max_time)
 
- 
     # gets unique dates from stock_data and shuffles them
     # index_shuffled = np.array(stock_data.index)
     
@@ -166,8 +188,6 @@ if __name__ == "__main__":
     # tests these indicators and appends that indication to df
     # paramaters in order are train data, all data, buy query, sell query, sell at end of day boolean
     situations = situations.append(determine_indication(train_data, stock_data, 'price / price.shift(60) >= 1.0025', '(price >= price.iloc[0] * (1 + 0.0025)) | (price <= price.iloc[0] * (1 - 0.0025))', True), ignore_index = True).drop('situation', axis=1)
-
-    print(situations)
 
     #filters situations
     situations = situations.loc[(situations['indicate'] != 0)]

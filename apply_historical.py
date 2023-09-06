@@ -6,7 +6,9 @@ import os
 import requests
 
 import numpy as np
+
 import pandas as pd
+import pandas_ta as ta
 
 from datetime import timedelta, datetime, time, date
 
@@ -53,21 +55,29 @@ def get_data(symbol, start_date, end_date, api_key, redirect_url):
     return pd.concat(stock_data_months).sort_index(axis=0)
 
 #determines if the situation indicates to buy/sell/dont know
-def trade(stock_data: pd.DataFrame, situation : str, close_situation : str, close_at_end_day : bool):
+def trade(stock_data: pd.DataFrame, situation : str, close_situation : str, close_at_end_day : bool, stop_loss):
 
     #HELPER FUNCTIONS
 
     #determines if stock moves pct(movement) up or down
-    def close_at(start, stock_data : pd.DataFrame, close_situation : str, close_at_end_day : bool):
+    def close_at(start, stock_data : pd.DataFrame, close_situation : str, close_at_end_day : bool, stop_loss):
         #if you want to close at end day get only prices on this date
         if close_at_end_day:
             price = stock_data.loc[stock_data.index.date == start.date()]
+            #gets stock data after datetime
+            price = (price.loc[(price.index >= start)])
+        else:
+            #gets stock data after datetime
+            price = (stock_data.loc[(stock_data.index >= start)])
 
-        #gets stock data after datetime
-        price = (price.loc[(price.index >= start)])
-        
-        #gets stock data at possible sell points
-        movement = price.query(close_situation)['price']
+        #gets stock data at possible sell point
+        movement = price.query((close_situation))['price']
+
+        #if stop_loss not None
+        if stop_loss is not None:
+            stop_loss = stock_data.loc[((stock_data['price'] - stock_data['price'].iloc[0]) / stock_data['price'].iloc[0]) <= (float(stop_loss) * -1)]['price']
+            #combine the dfs
+            movement = pd.concat([movement, stop_loss], axis=0).sort_index()
         
         #returns pct change of trade if there is one
         if not movement.empty:
@@ -101,7 +111,7 @@ def trade(stock_data: pd.DataFrame, situation : str, close_situation : str, clos
     trades['open_time'] = pd.Series(stock_data.query(situation).index)
 
     #performs "trades"
-    trades[['close_time', 'pct_change']] = trades['open_time'].apply(close_at, args=(stock_data, close_situation, close_at_end_day))
+    trades[['close_time', 'pct_change']] = trades['open_time'].apply(close_at, args=(stock_data, close_situation, close_at_end_day, stop_loss))
 
     #if no trades
     if trades.empty:
@@ -118,7 +128,7 @@ def trade(stock_data: pd.DataFrame, situation : str, close_situation : str, clos
     #returns accuracy
     # return pd.Series({'occurences' : len(trades), 'profit': trades['pct_change'].sum()})
  
-def execute(symbol, buy_query, sell_query, start_date, end_date):
+def execute(symbol : str, buy_query : str, sell_query : str, start_date : str, end_date : str, close_at_end_of_day : bool, stop_loss = None):
     min_time = '09:30'
     max_time = '16:00'
 
@@ -134,12 +144,12 @@ def execute(symbol, buy_query, sell_query, start_date, end_date):
     stock_data = stock_data.between_time(min_time, max_time)
 
     #calculations
-    stock_data['rolling_10'] = stock_data['price'].rolling(10).mean()
-    stock_data['rolling_20'] = stock_data['price'].rolling(20).mean()
-    stock_data = stock_data.dropna()
+    stock_data['SMA_10'] = ta.sma(stock_data['price'], length=10)
     
-    return trade(stock_data, buy_query, sell_query, True)
+    stock_data['SMA_20'] = ta.sma(stock_data['price'], length=20)
+
+    return trade(stock_data, buy_query, sell_query, close_at_end_of_day, stop_loss)
     
 
 if __name__ == "__main__":
-    execute('SPY', 'rolling_10 >= rolling_20', 'rolling_10 <= rolling_20','2020-01','2020-02')
+    print(execute('SPY', 'SMA_10 >= SMA_20', 'SMA_10 <= SMA_20','2020-01','2020-02', False, 0.05))
